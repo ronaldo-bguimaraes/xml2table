@@ -1,0 +1,28 @@
+source:
+  file: errors.xml
+
+settings:
+  batch_size: 100
+  error_policy: fail
+
+output: errors_fail.duckdb
+
+tables:
+  records:
+    source: "//Record"
+    columns:
+      id:
+        xpath: "@id"
+        type: INTEGER
+
+      event_date:
+        xpath: "Date/text()"
+        type: DATE
+
+      amount:
+        xpath: "Amount/text()"
+        type: INTEGER
+
+      active:
+        xpath: "Active/text()"
+        type: BOOLEAN

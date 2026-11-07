@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Records>
+  <Record id="1">
+    <Date>2026-01-01</Date>
+    <Amount>42</Amount>
+    <Active>true</Active>
+  </Record>
+  <Record id="2">
+    <Date>not-a-date</Date>
+    <Amount>17</Amount>
+    <Active>yes</Active>
+  </Record>
+  <Record id="3">
+    <Date>2026-03-03</Date>
+    <Amount>12.5</Amount>
+    <Active>maybe</Active>
+  </Record>
+</Records>

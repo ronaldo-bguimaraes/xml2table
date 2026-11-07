@@ -26,7 +26,7 @@ The critical design choice is memory-safe streaming with nested records: record 
 
 **Performance Goals**: Process at least 100,000 records with memory bounded by batch size and largest open record subtree rather than total record count; insert one parameterized statement per chunk of a batch, never one statement per row.
 
-**Constraints**: One XML source file per run; no XSD, no schema inference, no Polars, no web service, API server, or GUI. Column XPath expressions are limited to what can be evaluated from the live current record and its still-attached ancestors. Source XPath matching supports absolute/relative location paths using child and descendant axes, `*`, and attribute predicates; unsupported constructs fail mapping validation with a clear message.
+**Constraints**: One XML source file per run; no XSD, no schema inference, no Polars, no web service, API server, or GUI. Column XPath expressions are limited to what can be evaluated from the live current record and its still-attached ancestors. Source XPath matching supports absolute/relative location paths using child and descendant axes, `*`, and attribute predicates; unsupported constructs fail mapping validation with a clear message. Custom callbacks, plugins, and pre/post scripts are out of scope; users post-process DuckDB tables or Parquet exports in Python after extraction.
 
 **Scale/Scope**: One mapping may declare many output tables and millions of input records. Batch size defaults to 10,000 records per table. Tables are replaced on each run. No incremental append, resume, deduplication, or automatic foreign-key discovery.
 

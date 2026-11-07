@@ -202,6 +202,7 @@ Expected: no XSD files exist anywhere in the project or example input directory,
 - `../@id`-style parent access works while the parent is still attached, which the parser guarantees for records being emitted.
 - Source paths support location paths with `/`, `//`, `*`, element names, and attribute predicates. Namespace prefixes, positional predicates, functions, and unions are rejected.
 - One input XML file per run; no incremental append, resume, deduplication, or automatic foreign-key inference.
+- No callbacks, plugins, or pre/post scripts during extraction. Apply custom logic after the run in Python against the DuckDB database or Parquet exports.
 - Tables are replaced on each run.
 - A very large single record remains in memory until that record completes.
 

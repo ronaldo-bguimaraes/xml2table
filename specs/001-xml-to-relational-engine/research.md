@@ -162,3 +162,16 @@ Reject unknown keys, duplicate table names, invalid identifiers (`^[A-Za-z_][A-Z
 **Rationale**: Predictable cleanup is required by the specification and avoids locked database files on Windows. Preventing repeated `run()` calls avoids ambiguous "replace tables again" behavior in the MVP.
 
 **Alternatives considered**: Reusable extractor instances with reset semantics add state complexity without a user requirement.
+
+## R13. Custom logic and code hooks
+
+**Decision**: Keep extraction declarative. The MVP does not execute user-supplied callbacks, plugins, or pre/post scripts. Users who need domain-specific logic do it after extraction with Python against the DuckDB database or Parquet exports.
+
+**Rationale**: The specification's goal is a lightweight declarative engine. Adding execution hooks would expand the public API, error model, security surface, and test matrix beyond MVP scope. The API already returns the output path and statistics, so post-processing is straightforward.
+
+**Alternatives considered**:
+- Per-row or per-column Python callbacks: useful, but a material feature expansion with serialization and failure-policy questions.
+- YAML-embedded expressions/SQL: introduces an expression language and injection concerns.
+- External pre/post scripts: easiest to add later, but still outside the MVP.
+
+**Consequences**: A mapping that declares callback/script/plugin keys is rejected as an unknown key. This decision was confirmed during clarification on 2026-11-07.

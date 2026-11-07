@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Clinic>
+  <Patient id="1">
+    <Name>Alice Johnson</Name>
+    <PersonalData>
+      <FullName>Alice J. Johnson</FullName>
+    </PersonalData>
+    <Phone>555-0101</Phone>
+    <Phone>555-0102</Phone>
+    <Appointment id="101">
+      <Date>2026-01-15</Date>
+      <Description>Annual checkup</Description>
+    </Appointment>
+    <Appointment id="102">
+      <Date>2026-02-20</Date>
+      <Description>Follow-up</Description>
+    </Appointment>
+  </Patient>
+
+  <Patient id="2">
+    <PersonalData>
+      <FullName>Bob Jones</FullName>
+    </PersonalData>
+    <Phone>555-0201</Phone>
+    <Appointment id="103">
+      <Date>2026-03-05</Date>
+      <Description>Consultation</Description>
+    </Appointment>
+  </Patient>
+
+  <Patient id="3">
+    <Name>Carol White</Name>
+  </Patient>
+
+  <Patient id="4">
+    <Name>David Brown</Name>
+    <Phone>555-0401</Phone>
+    <Appointment id="104">
+      <Date>2026-04-10</Date>
+    </Appointment>
+  </Patient>
+</Clinic>

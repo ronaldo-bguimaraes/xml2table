@@ -1,0 +1,47 @@
+source:
+  file: patients.xml
+
+settings:
+  batch_size: 2
+  error_policy: fail
+
+output: patients.duckdb
+
+tables:
+  patients:
+    source: "//Patient"
+    columns:
+      id:
+        xpath: "@id"
+        type: INTEGER
+
+      name:
+        xpath:
+          - "Name/text()"
+          - "PersonalData/FullName/text()"
+        strategy: first_non_empty
+        type: VARCHAR
+
+      phones:
+        xpath: "Phone/text()"
+        strategy: collect
+        type: JSON
+
+  appointments:
+    source: "//Patient/Appointment"
+    columns:
+      id:
+        xpath: "@id"
+        type: INTEGER
+
+      patient_id:
+        xpath: "../@id"
+        type: INTEGER
+
+      date:
+        xpath: "Date/text()"
+        type: DATE
+
+      description:
+        xpath: "Description/text()"
+        type: VARCHAR

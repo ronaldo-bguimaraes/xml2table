@@ -8,6 +8,12 @@
 
 **Input**: User description: "Build a lightweight, declarative XML-to-relational extraction engine in Python that converts large XML files into multiple relational tables using user-defined XPath mappings, works independently of XSD, streams large files incrementally, stores results in DuckDB, converts values to explicit types with configurable error handling, exposes a Python API and CLI, reports execution statistics, and supports Parquet export."
 
+## Clarifications
+
+### Session 2026-11-07
+
+- Q: How should the MVP let users apply logic or code specific to their data during processing? → A: Out of MVP scope; extraction stays declarative in YAML, and custom logic is applied afterward through the Python API and the resulting DuckDB or Parquet data.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Extract multiple related tables from one XML file (Priority: P1)
@@ -111,6 +117,7 @@ A developer embeds the extractor in a script, while an analyst uses a command-li
 - The XML uses namespaces: namespace-aware mapping behavior is limited in the MVP and is documented; mappings without namespace prefixes are the supported default.
 - A conversion succeeds only after trimming surrounding whitespace: leading and trailing whitespace is ignored for typed values and preserved for text values.
 - The output path equals the input XML path or the mapping path: the run refuses to proceed to avoid destroying the source.
+- A mapping declares a callback, script, or plugin key: validation rejects it as an unknown key; no custom code is executed during extraction.
 
 ## Requirements *(mandatory)*
 
@@ -179,6 +186,7 @@ A developer embeds the extractor in a script, while an analyst uses a command-li
 - **FR-044**: Parquet exports MUST preserve table row counts, column names, column order, and declared data types.
 - **FR-045**: The system MUST locate the tables to export from the mapping's configured output database and MUST fail with a clear message when that database or a mapped table is missing.
 - **FR-046**: On failure, the system MUST report the failure clearly, close all open resources, and MUST NOT present the run as successful or emit statistics as if all tables completed.
+- **FR-047**: The MVP MUST NOT execute user-supplied callbacks, scripts, or plugins during extraction; custom transformations are out of scope and MUST be performed by the user after extraction through the Python API and the resulting DuckDB or Parquet outputs.
 
 ### Key Entities
 
@@ -221,6 +229,7 @@ A developer embeds the extractor in a script, while an analyst uses a command-li
 - The CLI is the only supported operational interface; web services, APIs, GUIs, distributed execution, and Polars are out of scope.
 - The MVP supports the XPath subset available through lxml relative to a live record element. Document-wide aggregates, arbitrary document-root queries inside column mappings, and access to already-cleared nodes are documented limitations.
 - XSD-based validation, schema inference, and automatic type discovery are explicitly out of scope; explicit mapping types are authoritative.
+- Custom row/column transformations, callbacks, plugins, and pre/post scripts are out of scope for the MVP; users perform them after extraction in Python against the output database or Parquet files.
 - Namespace-aware mappings are a known MVP limitation; the default supported inputs use unqualified element names.
 
 ## Limitations
@@ -229,4 +238,5 @@ A developer embeds the extractor in a script, while an analyst uses a command-li
 - Parent/ancestor access such as `../@id` works only while the relevant ancestor remains in the live parse tree; the engine guarantees this for ancestors of records that are still being emitted but not for arbitrary previously completed branches.
 - XPath results are converted to scalar values; node-set strategies beyond the four documented combination strategies are out of scope.
 - The tool does not resolve cross-table foreign keys automatically; users map them explicitly with XPath expressions.
+- The extraction pipeline has no user-defined code hooks; all extraction behavior comes from the YAML mapping and the built-in strategies. Custom logic runs after extraction against DuckDB or Parquet.
 - Namespace prefixes require explicit handling that is not part of the MVP's default mapping syntax.

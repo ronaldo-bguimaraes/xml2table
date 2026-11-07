@@ -1,0 +1,20 @@
+source:
+  file: patients.xml
+
+settings:
+  batch_size: 100
+  error_policy: fail
+
+output: no_xsd.duckdb
+
+tables:
+  patients:
+    source: "//Patient"
+    columns:
+      id:
+        xpath: "@id"
+        type: INTEGER
+
+      name:
+        xpath: "Name/text()"
+        type: VARCHAR
