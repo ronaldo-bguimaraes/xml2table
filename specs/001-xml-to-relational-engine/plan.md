@@ -14,11 +14,11 @@ The critical design choice is memory-safe streaming with nested records: record 
 
 **Language/Version**: Python 3.11+
 
-**Primary Dependencies**: `lxml` (streaming parse and XPath), `duckdb` (storage and Parquet export), `PyYAML` (mapping input). Development dependency: `pytest`.
+**Primary Dependencies**: `lxml` (streaming parse and XPath), `duckdb` (storage and Parquet export), `PyYAML` (mapping input). Development dependencies: `pytest` and `jsonschema` (mapping-contract validation).
 
 **Storage**: DuckDB file database, default `output.duckdb` beside the mapping file; Parquet files exported through DuckDB's `COPY ... TO ... (FORMAT PARQUET)`.
 
-**Testing**: `pytest`, with fixtures for nested and repeated records, missing values, multiple XPath matches, invalid data, large generated input, and end-to-end DuckDB/Parquet assertions.
+**Testing**: `pytest`, with fixtures for nested and repeated records, missing values, multiple XPath matches, invalid data, 100,000-record streaming compared with a 10,000-record baseline, mapping-contract validation, and end-to-end DuckDB/Parquet assertions.
 
 **Target Platform**: Local developer or analyst workstation on Linux, macOS, or Windows with Python 3.11+.
 
@@ -26,7 +26,7 @@ The critical design choice is memory-safe streaming with nested records: record 
 
 **Performance Goals**: Process at least 100,000 records with memory bounded by batch size and largest open record subtree rather than total record count; insert one parameterized statement per chunk of a batch, never one statement per row.
 
-**Constraints**: One XML source file per run; no XSD, no schema inference, no Polars, no web service, API server, or GUI. Column XPath expressions are limited to what can be evaluated from the live current record and its still-attached ancestors. Source XPath matching supports absolute/relative location paths using child and descendant axes, `*`, and attribute predicates; unsupported constructs fail mapping validation with a clear message. Custom callbacks, plugins, and pre/post scripts are out of scope; users post-process DuckDB tables or Parquet exports in Python after extraction.
+**Constraints**: One XML source file per run; no XSD, no schema inference, no Polars, no HTTP/web service, API server, or GUI. The CLI and the Python embedding API are supported; HTTP/web APIs are out of scope. Column XPath expressions are limited to what can be evaluated from the live current record and its still-attached ancestors. Source XPath matching supports absolute/relative location paths using child and descendant axes, `*`, and attribute predicates; unsupported constructs fail mapping validation with a clear message. YAML duplicate keys are rejected explicitly during loading, not silently overwritten. Custom callbacks, plugins, and pre/post scripts are out of scope; users post-process DuckDB tables or Parquet exports in Python after extraction.
 
 **Scale/Scope**: One mapping may declare many output tables and millions of input records. Batch size defaults to 10,000 records per table. Tables are replaced on each run. No incremental append, resume, deduplication, or automatic foreign-key discovery.
 
@@ -77,8 +77,9 @@ src/
     ├── __init__.py        # Public exports: XMLExtractor, RunStats, exceptions
     ├── __main__.py        # `python -m xml2rel` entry point
     ├── cli.py             # argparse run/export commands and stats output
-    ├── config.py          # YAML loading, dataclasses, validation, path resolution
-    ├── parser.py          # iterparse loop, source matching, safe clearing
+    ├── config.py          # strict YAML loading, dataclasses, validation, paths
+    ├── source_path.py     # source record path compilation and streaming match
+    ├── parser.py          # iterparse loop and safe clearing
     ├── xpath.py           # column evaluation and combination strategies
     ├── converter.py       # typed conversion and conversion errors
     ├── buffers.py         # per-table buffers and flush decisions
@@ -87,6 +88,7 @@ src/
         ├── __init__.py    # Backend protocol/export
         └── duckdb.py      # table DDL, chunked batch inserts, Parquet COPY
 tests/
+├── conftest.py
 ├── test_parser.py
 ├── test_xpath.py
 ├── test_converter.py
@@ -100,20 +102,21 @@ tests/
     └── no_xsd_mapping.yaml
 ```
 
-**Structure Decision**: Single-project layout because the deliverable is one library with one CLI. The only interface boundary is `backend/duckdb.py`; the parser is storage-agnostic and emits extracted records through a callback so batch conversion and persistence remain in `engine.py`.
+**Structure Decision**: Single-project layout because the deliverable is one library with one CLI. The only interface boundary is `backend/duckdb.py`; the parser is storage-agnostic and emits extracted records through a callback so batch conversion and persistence remain in `engine.py`. `source_path.py` is separate from both `config.py` and `parser.py` so config-time validation can compile source matchers without a circular import.
 
 ## Design Details
 
 ### Mapping lifecycle
 
-1. `XMLExtractor.from_yaml(path)` loads YAML with `yaml.safe_load`, validates all sections, compiles source matchers and per-column XPath expressions, resolves the source and output paths relative to the mapping file, and constructs the DuckDB backend.
-2. `run(output_override=None)` creates the output database directory if needed, opens DuckDB, drops and recreates all mapped tables in one transaction, streams the XML, converts and buffers records, flushes at batch size, writes final buffers, collects statistics, and closes resources.
-3. `export_parquet(output_dir)` opens the effective output database (the mapping's configured path, or the last `run(output=...)` override), verifies every mapped table exists, creates the output directory, and writes `<table>.parquet` for each table.
+1. `XMLExtractor.from_yaml(path)` loads YAML through a strict safe loader that rejects duplicate mapping keys, validates all sections, compiles `SourcePathMatcher` instances (from `source_path.py`) and per-column XPath expressions, resolves the source and output paths relative to the mapping file, and constructs the DuckDB backend.
+2. `run(output_override=None)` creates the output database directory if needed, opens DuckDB, drops and recreates all mapped tables in one transaction, streams the XML, converts and buffers records, flushes at batch size, writes final buffers, collects statistics, and closes resources. A second call on the same extractor raises `RuntimeError`.
+3. `export_parquet(output_dir, database=None)` opens `database` when supplied, otherwise the mapping's configured output path, verifies every mapped table exists, creates the output directory, and writes `<table>.parquet` for each table. It does not implicitly reuse a prior `run(output=...)` override.
 
 ### Streaming and record matching
 
-- A `SourcePathMatcher` compiles each table's source XPath into ordered segments. Supported syntax is location paths anchored at the document or using `//`, with child/descendant steps, element names, `*`, and attribute predicates such as `[@id]`, `[@id='x']`. Numeric positional predicates, functions, unions, and unprefixed default-namespace handling are rejected at validation time with the table name and expression.
+- `src/xml2rel/source_path.py` provides `SourcePathMatcher`, which compiles each table's source XPath into ordered segments. Supported syntax is location paths anchored at the document or using `//`, with child/descendant steps, element names, `*`, and attribute predicates such as `[@id]`, `[@id='x']`. Numeric positional predicates, functions, unions, namespaces, and child-text predicates are rejected at validation time with the table name and expression.
 - `iterparse` uses `events=("start", "end")`. Match detection happens on start so the parser knows whether an open ancestor is a record before children arrive; attributes needed by supported predicates are available at start.
+- File-open and `iterparse` failures are wrapped in `ExtractionError` with the source path and a human-readable reason; malformed XML is never silently skipped.
 - A frame records the element, matched table names, and parent link. On end, each matched table emits a raw record.
 - After extraction, if any ancestor frame is a record, the element is retained because an open ancestor record may read it. If no ancestor is a record, the element is cleared and detached from its parent. When an outer record ends, its full retained subtree is cleared, releasing all nested child records that were kept for parent columns.
 - Buffers are per table. A flush occurs as soon as the table's buffer reaches `batch_size`; remaining buffers flush at document end.
@@ -133,16 +136,25 @@ tests/
 
 ### Parquet export
 
-- `export` uses the effective output database (configured path, or a prior API run override); it does not re-run extraction.
+- `export` uses an explicit `database` path when supplied; otherwise it uses the mapping's configured output database. This satisfies the spec's default while allowing API/CLI users to export a run that used an output override. It does not re-run extraction.
 - DuckDB `COPY (SELECT * FROM "table") TO 'directory/table.parquet' (FORMAT PARQUET)` preserves column names, order, and types. Unsafe characters in table names are rejected at validation so file names are predictable and cannot escape the output directory.
 
 ### Statistics
 
-`RunStats` contains ordered per-table `records_extracted` and `batches_written`, plus `total_records` and `duration_seconds`. The CLI prints a compact table to stdout and prints errors to stderr with a non-zero exit code.
+`RunStats` contains ordered per-table `records_extracted` and `batches_written`, plus `total_records`, `duration_seconds`, and `output_path` for the run. `TableBuffer` tracks `records_extracted`, `batches_written`, pending rows, and the configured batch size. The CLI prints a compact table to stdout and prints errors to stderr with a non-zero exit code. A second `run()` call on the same extractor raises `RuntimeError`.
 
 ## Phase 0: Research
 
-Research decisions and alternatives are recorded in [research.md](./research.md). All unknowns are resolved: source matching strategy, clearing policy, batch insertion mechanism, conversion formats, JSON/collect handling, export mechanism, and large-file testing approach.
+Research decisions and alternatives are recorded in [research.md](./research.md). All design unknowns are resolved: source matching strategy, clearing policy, batch insertion mechanism, conversion formats, JSON/collect handling, export mechanism, duplicate-key handling, and large-file testing approach.
+
+### Spec alignment notes
+
+The following are wording/contract alignments rather than blocking design unknowns:
+
+- **FR-014 (`first` strategy)**: the plan uses “first expression that yields at least one result”; the spec should state whether a later expression is consulted when the first yields no result.
+- **Source XPath subset**: the plan and quickstart document the supported source location-path subset; the spec's Limitations section should mention it alongside the column XPath limitations.
+- **CLI/API wording**: the spec assumption says “CLI is the only supported operational interface”; this should be reworded to distinguish the CLI, the Python embedding API, and out-of-scope HTTP/web APIs.
+- **FR-045 (export database)**: the design defaults export to the configured output and adds an explicit `database`/`--database` override; this remains compatible with FR-045 and should be reflected in the spec if the override is retained.
 
 ## Phase 1: Design Artifacts
 
@@ -151,6 +163,7 @@ Research decisions and alternatives are recorded in [research.md](./research.md)
 - [contracts/cli.md](./contracts/cli.md) defines commands, options, exit codes, and statistic output.
 - [contracts/public-api.md](./contracts/public-api.md) defines the Python surface.
 - [quickstart.md](./quickstart.md) defines runnable end-to-end validation scenarios.
+- The example and fixture mappings are validated against `contracts/mapping.schema.json` in the test suite using `jsonschema`, so the contract and loader cannot drift silently.
 
 ## Post-Design Constitution Re-Check
 

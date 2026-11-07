@@ -32,7 +32,8 @@ Expected:
 - All unit and integration tests pass.
 - The parser tests show nested records, parent access, and per-table buffering.
 - The converter tests show every supported type and both policies.
-- The engine tests show multi-table extraction, batching, Parquet round-tripping, and a run with no XSD present.
+- The engine tests show multi-table extraction, batching, Parquet round-tripping, a run with no XSD present, and rejection of duplicate YAML keys.
+- The example and fixture mappings validate against `contracts/mapping.schema.json`.
 
 ## 3. Inspect the example
 
@@ -143,7 +144,7 @@ Expected: the run completes, the invalid value is NULL, and the statistics block
 
 ## 8. Verify large-file streaming
 
-Run the large-file test or generate an input larger than memory is practical for the environment:
+Run the large-file tests:
 
 ```bash
 pytest tests/test_parser.py -k large -q
@@ -152,9 +153,10 @@ pytest tests/test_engine.py -k large -q
 
 Expected:
 
+- The engine processes 100,000 records and a 10,000-record baseline with the same batch size.
 - The run completes with the expected row and batch counts.
 - The parser's open frame stack remains shallow.
-- Peak tracked allocations stay below the test's generous ceiling and do not scale with total record count.
+- Peak tracked allocations do not scale proportionally with total record count.
 
 ## 9. Export to Parquet
 
@@ -162,10 +164,18 @@ Expected:
 xml2rel export examples/mapping.yaml --output-dir /tmp/xml2rel-parquet
 ```
 
+If the run used `--output`, export that database explicitly:
+
+```bash
+xml2rel export examples/mapping.yaml --output-dir /tmp/xml2rel-parquet \
+  --database /tmp/xml2rel-result.duckdb
+```
+
 Expected:
 
 - One file per mapped table: `/tmp/xml2rel-parquet/patients.parquet` and `/tmp/xml2rel-parquet/appointments.parquet`.
 - Each command lists the written paths.
+- Without `--database`, export uses the mapping's configured `output`.
 
 Read them back:
 
@@ -203,6 +213,7 @@ Expected: no XSD files exist anywhere in the project or example input directory,
 - Source paths support location paths with `/`, `//`, `*`, element names, and attribute predicates. Namespace prefixes, positional predicates, functions, and unions are rejected.
 - One input XML file per run; no incremental append, resume, deduplication, or automatic foreign-key inference.
 - No callbacks, plugins, or pre/post scripts during extraction. Apply custom logic after the run in Python against the DuckDB database or Parquet exports.
+- Duplicate YAML keys are rejected rather than silently overwritten.
 - Tables are replaced on each run.
 - A very large single record remains in memory until that record completes.
 

@@ -25,7 +25,11 @@ class XMLExtractor:
 
     def run(self, output: str | Path | None = None) -> RunStats: ...
 
-    def export_parquet(self, output_dir: str | Path) -> list[Path]: ...
+    def export_parquet(
+        self,
+        output_dir: str | Path,
+        database: str | Path | None = None,
+    ) -> list[Path]: ...
 
     @property
     def mapping_path(self) -> Path: ...
@@ -45,16 +49,16 @@ class XMLExtractor:
 ### `run(output=None)`
 
 - Runs extraction once for this instance.
-- `output` overrides the mapping's output database for this run and becomes the extractor's effective `output_path` for later export.
+- `output` overrides the mapping's output database for this run and updates the informational `output_path` to the path actually used. `export_parquet` does not implicitly reuse it.
 - Creates/replaces mapped tables, streams the XML, converts values, flushes batches, and returns statistics.
 - Raises `ConfigError` (already validated at construction unless state is invalid), `ExtractionError` for XML access/parse failure, `ConversionError` under the `fail` policy, or `BackendError` for database failures.
 - Under the `null` policy, invalid values become NULL and no `ConversionError` is raised.
 - Calling `run` a second time raises `RuntimeError` with a clear message.
 - Resources are closed on success and failure.
 
-### `export_parquet(output_dir)`
+### `export_parquet(output_dir, database=None)`
 
-- Opens the effective output database without re-running extraction.
+- Opens `database` when supplied; otherwise opens the mapping's configured output database. It does not implicitly reuse a prior `run(output=...)` override.
 - Creates `output_dir` recursively.
 - Writes `<table>.parquet` for every mapped table, in declaration order.
 - Returns the written paths in the same order.
@@ -64,7 +68,7 @@ class XMLExtractor:
 ### Properties
 
 - `mapping_path`: absolute path of the loaded mapping.
-- `output_path`: absolute effective output database path (configured value unless overridden by a prior `run(output=...)`).
+- `output_path`: path used by the most recent `run(output=...)` if one occurred, otherwise the mapping's configured output path. This is informational; `export_parquet` defaults to the configured path unless `database` is supplied.
 
 ## `RunStats`
 
@@ -75,7 +79,7 @@ Immutable result object.
 | `tables` | ordered mapping of table name to `TableStats` | Declaration order. |
 | `total_records` | int | Sum of table record counts. |
 | `duration_seconds` | float | Wall-clock extraction duration. |
-| `output_path` | Path | Effective database path. |
+| `output_path` | Path | Database path used by the run. |
 
 `TableStats`:
 
@@ -106,6 +110,6 @@ stats = extractor.run(output="/tmp/results.duckdb")
 for name, table in stats.tables.items():
     print(name, table.records_extracted, table.batches_written)
 
-paths = extractor.export_parquet("/tmp/parquet")
+paths = extractor.export_parquet("/tmp/parquet", database=stats.output_path)
 print(paths)
 ```

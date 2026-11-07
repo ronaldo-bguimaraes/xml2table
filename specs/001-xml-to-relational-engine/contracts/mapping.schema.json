@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://xml2rel.local/contracts/mapping.schema.json",
   "title": "xml2rel mapping",
-  "description": "Schema for the YAML mapping consumed by xml2rel. YAML 1.1 values are loaded with a safe loader. Runtime normalization accepts case-insensitive enum values and resolves relative paths against the mapping file.",
+  "description": "Schema for the YAML mapping consumed by xml2rel. YAML 1.1 values are loaded with a strict safe loader that rejects duplicate mapping keys. Runtime normalization accepts case-insensitive enum values and resolves relative paths against the mapping file.",
   "type": "object",
   "additionalProperties": false,
   "required": ["source", "tables"],
@@ -30,10 +30,13 @@
           "description": "Records buffered per table before a batch write."
         },
         "error_policy": {
-          "type": "string",
-          "enum": ["fail", "null"],
+          "oneOf": [
+            { "const": "fail" },
+            { "const": "null" },
+            { "type": "null" }
+          ],
           "default": "fail",
-          "description": "Conversion failure behavior. Input is normalized case-insensitively."
+          "description": "Conversion failure behavior. The YAML null value and the string 'null' both mean NULL substitution; input strings are normalized case-insensitively."
         }
       }
     },

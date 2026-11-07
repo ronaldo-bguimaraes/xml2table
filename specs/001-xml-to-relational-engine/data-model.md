@@ -16,10 +16,10 @@ The validated root of one YAML mapping.
 | `source` | SourceConfig | Yes | Must contain a non-empty file path. |
 | `settings` | Settings | No | Defaults apply when omitted. |
 | `output` | resolved path | No | Defaults to `output.duckdb` beside the mapping file. CLI override wins. Must not resolve to the source XML or mapping file. |
-| `tables` | ordered map of TableConfig | Yes | At least one table; names unique and matching `^[A-Za-z_][A-Za-z0-9_]*$`; declaration order preserved for reporting. |
+| `tables` | ordered map of TableConfig | Yes | At least one table; names unique and matching `^[A-Za-z_][A-Za-z0-9_]*$`; declaration order preserved for reporting. Duplicate YAML keys are rejected by the loader before this model is built. |
 | `mapping_path` | resolved absolute path | Yes | Used for relative path resolution and error messages. |
 
-Unknown top-level keys are rejected.
+Unknown top-level keys are rejected. The YAML loader uses a strict safe loader that raises `ConfigError` on duplicate mapping keys instead of silently keeping the last value.
 
 ### SourceConfig
 
@@ -32,7 +32,7 @@ Unknown top-level keys are rejected.
 | Field | Type | Required | Default | Rules |
 |-------|------|----------|---------|-------|
 | `batch_size` | integer | No | 10,000 | Strictly greater than zero. |
-| `error_policy` | enum | No | `fail` | One of `fail`, `null` (case-insensitive input accepted). |
+| `error_policy` | enum | No | `fail` | One of `fail`, `null`; the YAML `null` value is also accepted as the `null` policy (case-insensitive strings accepted). |
 
 Unknown settings keys are rejected.
 
@@ -67,7 +67,7 @@ Unknown column keys are rejected.
 
 ### SourcePathMatcher
 
-Derived from a table's `source` expression; not user-authored.
+Derived from a table's `source` expression; not user-authored. Implemented in `src/xml2rel/source_path.py` so both config validation and the streaming parser can use it without a circular import.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -127,6 +127,7 @@ One independent buffer per output table.
 | `table` | TableConfig | Owning table; supplies column order and types. |
 | `rows` | list of ordered value tuples | Converted rows awaiting insertion. |
 | `batch_size` | integer | Global configured size. |
+| `records_extracted` | integer | Count of rows appended for this table. |
 | `batches_written` | integer | Count of completed logical batches. |
 
 **Transitions**:
@@ -141,7 +142,7 @@ One independent buffer per output table.
 | Entity | Fields |
 |--------|--------|
 | TableStats | `table_name`, `records_extracted`, `batches_written` |
-| RunStats | ordered per-table stats, `total_records`, `duration_seconds` |
+| RunStats | ordered per-table stats, `total_records`, `duration_seconds`, `output_path` |
 
 **Invariants**:
 
@@ -158,6 +159,7 @@ One independent buffer per output table.
 | `ExtractionError` | source path, parse position if available, reason | XML cannot be opened/parsed, or the parser encounters an unrecoverable state. |
 | `ConversionError` | table, column, xpath label, original value, target type, reason | A selected value cannot be converted and policy is `fail`. |
 | `BackendError` | database path, operation, reason | DuckDB connection, DDL, insertion, or export fails. |
+| `RuntimeError` (built-in) | reason | `XMLExtractor.run()` is called a second time on the same instance. |
 
 `ConversionError` is the only error whose behavior depends on policy: with `null`, the engine logs no error and substitutes NULL; with `fail`, it propagates.
 
@@ -186,7 +188,7 @@ One per mapped table.
 | File | `<output-dir>/<table_name>.parquet`; output directory created if absent. |
 | Content | Full table selected in column order. |
 | Schema | Inherited from the DuckDB table; column names, order, and types preserved. |
-| Preconditions | Configured output database exists and every mapped table exists; otherwise export fails before writing partial artifacts. |
+| Preconditions | The selected database exists (explicit `database` when supplied, otherwise the mapping's configured output) and every mapped table exists; otherwise export fails before writing partial artifacts. |
 
 ## Relationships
 
@@ -208,7 +210,7 @@ RunStats      1 ── * TableStats
 
 | Requirement | Validation point |
 |-------------|------------------|
-| FR-001, FR-002 | YAML root shape, source/settings/output/tables presence and types. |
+| FR-001, FR-002 | Strict YAML loading with duplicate-key rejection; source/settings/output/tables presence and types. |
 | FR-003, FR-004 | Table source non-empty; columns non-empty; each column has xpath and type. |
 | FR-005 | Unknown keys, duplicates, enum values, batch size, identifier patterns, XPath compilation, source matcher support. |
 | FR-006, FR-007 | Path resolution relative to mapping; CLI override precedence. |
@@ -219,4 +221,4 @@ RunStats      1 ── * TableStats
 | FR-026–FR-031 | Backend DDL, batch transaction, output path safety, table replacement, cleanup. |
 | FR-032–FR-036 | Type enum and per-type conversion formats. |
 | FR-037–FR-039 | ConversionError fields and policy branch. |
-| FR-040–FR-046 | API/CLI signatures, stats return/print, export preconditions, failure reporting. |
+| FR-040–FR-046 | API/CLI signatures, stats return/print, export database selection (`database` override or configured output), failure reporting. |

@@ -7,7 +7,7 @@ All Technical Context unknowns are resolved below. Each decision is scoped to th
 
 ## R1. Streaming record selection
 
-**Decision**: Compile each table's source XPath into a `SourcePathMatcher` that supports absolute/relative location paths, `/` child steps, `//` descendant steps, `*`, element names, and attribute predicates (`[@id]`, `[@id='value']`). Match elements on `iterparse` start events. Reject unsupported source syntax during mapping validation.
+**Decision**: Compile each table's source XPath into a `SourcePathMatcher` in `src/xml2rel/source_path.py` that supports absolute/relative location paths, `/` child steps, `//` descendant steps, `*`, element names, and attribute predicates (`[@id]`, `[@id='value']`). Match elements on `iterparse` start events. Config validation compiles every matcher before extraction, and unsupported source syntax is rejected there.
 
 **Rationale**: Calling `lxml` XPath on the root for every element is quadratic and defeats large-file streaming. Pre-evaluating all source matches requires a full document. A structural matcher uses only the current ancestor stack, keeps memory bounded, and handles the source expressions used in the specification, including `/Root/Patient` and `//Patient/Appointment`. Start-time matching is required so the parser knows whether an open ancestor is a record when deciding what can be cleared.
 
@@ -17,7 +17,9 @@ All Technical Context unknowns are resolved below. Each decision is scoped to th
 - Use `ElementPath`/`iterfind`: still needs a traversal root and offers weaker expression control than a compiled stack matcher.
 - Fall back to slow XPath for unsupported source constructs: unpredictable performance; explicit validation is safer for an MVP.
 
-**Limitations introduced**: Namespaced source paths, numeric positional predicates, XPath functions, unions, and predicates that depend on child text are not supported in source paths. Column XPath expressions remain full `lxml` expressions relative to the record.
+**Limitations introduced**: Namespaced source paths, numeric positional predicates, XPath functions, unions, `./..` steps, and predicates that depend on child text are not supported in source paths. Column XPath expressions remain full `lxml` expressions relative to the record.
+
+**Dependency note**: Placing the matcher in `source_path.py` avoids a circular import between `config.py` (which validates mappings) and `parser.py` (which imports configuration types and consumes the matcher).
 
 ## R2. Memory-safe clearing of nested records
 
@@ -67,7 +69,9 @@ All Technical Context unknowns are resolved below. Each decision is scoped to th
 
 ## R5. Multiple-XPath strategies and JSON
 
-**Decision**: Evaluate expressions in declaration order. Normalize each result to a list of strings. `first_non_empty` returns the first non-blank value; `first` returns the first value from the first expression that yields a result; `concat` joins all non-blank values with no separator; `collect` returns `json.dumps(values)` for all matches. All strategies return `None` when there are no usable matches. `collect` is JSON text even for `VARCHAR`; a `JSON` target validates/canonicalizes it.
+**Decision**: Evaluate expressions in declaration order. Normalize each result to a list of strings. `first_non_empty` returns the first non-blank value; `first` returns the first value from the first expression that yields at least one result, even when that value is blank; `concat` joins all non-blank values with no separator; `collect` returns `json.dumps(values)` for all matches. All strategies return `None` when there are no usable matches. `collect` is JSON text even for `VARCHAR`; a `JSON` target validates/canonicalizes it.
+
+**Spec clarification needed**: FR-014's phrase "the first expression's first matched value" does not explicitly say whether a later expression is consulted when the first yields no result. This plan adopts "first expression that yields any result"; the spec should be updated to match before implementation.
 
 **Rationale**: These semantics are deterministic and directly testable. Producing JSON text for `collect` satisfies the required "JSON array" behavior without requiring a JSON-native Python column in every backend. Returning `None` for no matches keeps missing-value handling uniform.
 
@@ -89,7 +93,7 @@ All Technical Context unknowns are resolved below. Each decision is scoped to th
 
 ## R7. Parquet export
 
-**Decision**: The `export` command reads the mapping's configured output database and runs DuckDB `COPY (SELECT * FROM "table") TO '<output-dir>/<table>.parquet' (FORMAT PARQUET)` for every mapped table. It creates the output directory, rejects missing databases/tables, and refuses unsafe table names at validation time.
+**Decision**: The `export` command reads an explicit `database` path when supplied and otherwise the mapping's configured output database, then runs DuckDB `COPY (SELECT * FROM "table") TO '<output-dir>/<table>.parquet' (FORMAT PARQUET)` for every mapped table. The CLI exposes `--database` for the explicit case; the Python API exposes `database=None`. It creates the output directory, rejects missing databases/tables, and refuses unsafe table names at validation time. It never implicitly reuses a prior run override.
 
 **Rationale**: DuckDB's Parquet writer preserves schema and types without an extra dependency and handles large tables efficiently. One file per mapped table matches the requirement.
 
@@ -119,7 +123,7 @@ tables:
         type: VARCHAR        # required
 ```
 
-Reject unknown keys, duplicate table names, invalid identifiers (`^[A-Za-z_][A-Za-z0-9_]*$`), unsupported types/strategies, empty column sets, invalid batch sizes, non-string XPaths, and invalid XPath syntax. Resolve source/output paths relative to the mapping file; CLI `--output` overrides `output`.
+Load YAML with a strict safe loader that rejects duplicate mapping keys (including duplicate table and column names) instead of silently keeping the last value. Reject unknown keys, invalid identifiers (`^[A-Za-z_][A-Za-z0-9_]*$`), unsupported types/strategies, empty column sets, invalid batch sizes, non-string XPaths, and invalid XPath syntax. Resolve source/output paths relative to the mapping file; CLI `--output` overrides `output` for a run.
 
 **Rationale**: A strict schema catches typos early and keeps SQL identifiers and Parquet file names safe. The example in the specification remains valid. Defaults keep the smallest mapping working.
 
@@ -130,7 +134,7 @@ Reject unknown keys, duplicate table names, invalid identifiers (`^[A-Za-z_][A-Z
 
 ## R9. Large-file verification
 
-**Decision**: Add a test that generates a temporary XML file with 20,000–100,000 records, processes it with a small batch size, verifies row and batch counts, and measures peak Python allocations with `tracemalloc` against a generous bound. Complement it with a parser-level test that asserts the open frame stack stays shallow and that processed elements are detached.
+**Decision**: Add a test that generates a temporary XML file with 100,000 records and a 10,000-record baseline, processes both with the same small batch size, verifies row and batch counts, and uses `tracemalloc` to confirm peak allocations do not scale proportionally with record count. Complement it with a parser-level test that asserts the open frame stack stays shallow and that processed elements are detached.
 
 **Rationale**: A memory assertion alone can be flaky, so the suite combines a behavioral streaming assertion (bounded frame stack, incremental callbacks) with a generous allocation ceiling. This demonstrates the requirement without depending on machine-specific RSS.
 
@@ -157,7 +161,7 @@ Reject unknown keys, duplicate table names, invalid identifiers (`^[A-Za-z_][A-Z
 
 ## R12. Resource lifecycle
 
-**Decision**: The engine owns one DuckDB connection per run/export, uses `try/finally` to close it, and rolls back an open batch transaction on failure. `XMLExtractor.run()` may be called once per extractor instance; a second call raises a clear state error. Export opens a fresh connection and closes it.
+**Decision**: The engine owns one DuckDB connection per run/export, uses `try/finally` to close it, and rolls back an open batch transaction on failure. `XMLExtractor.run()` may be called once per extractor instance; a second call raises `RuntimeError` with a clear message. Export opens a fresh connection to the selected database and closes it.
 
 **Rationale**: Predictable cleanup is required by the specification and avoids locked database files on Windows. Preventing repeated `run()` calls avoids ambiguous "replace tables again" behavior in the MVP.
 

@@ -57,18 +57,19 @@ output: /path/to/output.duckdb
 ## `xml2rel export`
 
 ```text
-xml2rel export MAPPING --output-dir DIRECTORY
+xml2rel export MAPPING --output-dir DIRECTORY [--database DATABASE]
 ```
 
 | Argument/Option | Required | Meaning |
 |-----------------|----------|---------|
 | `MAPPING` | Yes | Path to the YAML mapping file, used to locate the configured output database and table names. |
 | `--output-dir DIRECTORY` | Yes | Directory that receives one `<table>.parquet` file per mapped table. Created recursively if absent. |
+| `--database DATABASE` | No | DuckDB database to export. Defaults to the mapping's configured `output`; does not implicitly reuse a prior `run --output` value. |
 
 **Behavior**:
 
 1. Load and validate the mapping.
-2. Resolve the output database (the mapping's `output` value; the CLI export command has no database override).
+2. Resolve the output database: explicit `--database` when supplied, otherwise the mapping's `output` value.
 3. Fail before writing artifacts if the database is missing or any mapped table is missing.
 4. Write one Parquet file per mapped table in mapping declaration order.
 5. Print each written path to stdout.

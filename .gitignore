@@ -1,6 +1,16 @@
 __pycache__/
 *.py[cod]
 .venv/
+venv/
 .pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
 *.duckdb
 *.parquet
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
