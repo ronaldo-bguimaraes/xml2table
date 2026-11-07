@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xml2rel.local/contracts/mapping.schema.json",
+  "title": "xml2rel mapping",
+  "description": "Schema for the YAML mapping consumed by xml2rel. YAML 1.1 values are loaded with a safe loader. Runtime normalization accepts case-insensitive enum values and resolves relative paths against the mapping file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "tables"],
+  "properties": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to the XML input. Relative paths resolve against the mapping file's directory."
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "batch_size": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10000,
+          "description": "Records buffered per table before a batch write."
+        },
+        "error_policy": {
+          "type": "string",
+          "enum": ["fail", "null"],
+          "default": "fail",
+          "description": "Conversion failure behavior. Input is normalized case-insensitively."
+        }
+      }
+    },
+    "output": {
+      "type": "string",
+      "minLength": 1,
+      "default": "output.duckdb",
+      "description": "DuckDB output path, relative to the mapping file when not absolute. The CLI --output option overrides it."
+    },
+    "tables": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/table"
+      },
+      "description": "Ordered map of output table name to table definition."
+    }
+  },
+  "$defs": {
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "columns"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "XPath selecting record elements. Supports absolute/relative location paths with /, //, *, element names, and attribute predicates in the MVP."
+        },
+        "columns": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/column"
+          },
+          "description": "Ordered map of output column name to column definition; declaration order is output column order."
+        }
+      }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["xpath", "type"],
+      "properties": {
+        "xpath": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ],
+          "description": "One XPath or an ordered list of XPath expressions, all evaluated relative to the current record element."
+        },
+        "strategy": {
+          "type": "string",
+          "enum": ["first_non_empty", "first", "concat", "collect"],
+          "default": "first_non_empty",
+          "description": "How multiple expressions/results are combined. Input is normalized case-insensitively."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "VARCHAR",
+            "INTEGER",
+            "BIGINT",
+            "DOUBLE",
+            "BOOLEAN",
+            "DATE",
+            "TIMESTAMP",
+            "JSON"
+          ],
+          "description": "Explicit output type. Input is normalized case-insensitively."
+        }
+      }
+    }
+  }
+}
